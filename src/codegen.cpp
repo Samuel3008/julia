@@ -2354,7 +2354,11 @@ static void jl_init_function(Function *F, const Triple &TT)
         attr.addStackAlignmentAttr(16);
     }
     if (TT.isOSWindows() && TT.getArch() == Triple::x86_64) {
+#if JL_LLVM_VERSION < 150000
         attr.addAttribute(Attribute::UWTable); // force NeedsWinEH
+#else
+        attr.addUWTableAttr(llvm::UWTableKind::Default); // force NeedsWinEH
+#endif
     }
     if (jl_fpo_disabled(TT))
         attr.addAttribute("frame-pointer", "all");
