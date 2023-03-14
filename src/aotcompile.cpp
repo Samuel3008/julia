@@ -943,6 +943,8 @@ struct ShardTimers {
     }
 };
 
+void emitFloat16Wrappers(Module &M, bool external);
+
 // Perform the actual optimization and emission of the output files
 static void add_output_impl(Module &M, TargetMachine &SourceTM, std::string *outputs, const std::string *names,
                     NewArchiveMember *unopt, NewArchiveMember *opt, NewArchiveMember *obj, NewArchiveMember *asm_,
@@ -1020,6 +1022,8 @@ static void add_output_impl(Module &M, TargetMachine &SourceTM, std::string *out
                 FunctionType::get(Type::getHalfTy(M.getContext()), { Type::getFloatTy(M.getContext()) }, false));
         injectCRTAlias(M, "__truncdfhf2", "julia__truncdfhf2",
                 FunctionType::get(Type::getHalfTy(M.getContext()), { Type::getDoubleTy(M.getContext()) }, false));
+#else
+        emitFloat16Wrappers(M, false);
 #endif
     }
     timers.optimize.stopTimer();
