@@ -8730,6 +8730,7 @@ static void makeCastCall(Module &M, StringRef wrapperName, StringRef calledName,
     builder.CreateRet(retval);
 }
 
+#if JULIA_FLOAT16_ABI == 2
 void emitFloat16Wrappers(Module &M, bool external)
 {
     auto &ctx = M.getContext();
@@ -8753,6 +8754,7 @@ static void init_f16_funcs(void)
     emitFloat16Wrappers(*aliasM, true);
     jl_ExecutionEngine->addModule(std::move(TSM));
 }
+#endif
 
 static void init_jit_functions(void)
 {
@@ -8992,7 +8994,9 @@ extern "C" JL_DLLEXPORT void jl_init_codegen_impl(void)
     jl_init_llvm();
     // Now that the execution engine exists, initialize all modules
     init_jit_functions();
+#if JULIA_FLOAT16_ABI == 2
     init_f16_funcs();
+#endif
 }
 
 extern "C" JL_DLLEXPORT void jl_teardown_codegen_impl() JL_NOTSAFEPOINT
