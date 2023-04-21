@@ -1714,6 +1714,10 @@ static void jl_read_reloclist(jl_serializer_state *s, jl_array_t *link_ids, uint
         uintptr_t *pv = (uintptr_t *)(base + pos);
         uintptr_t v = *pv;
         v = get_item_for_reloc(s, base, size, v, link_ids, &link_index);
+        if (bits && ((jl_datatype_t*)v)->smalltag) {
+            abort();
+            v = ((jl_datatype_t*)v)->smalltag; // temporary(jwn)
+        }
         *pv = v | bits;
     }
     assert(!link_ids || link_index == jl_array_len(link_ids));
@@ -2665,6 +2669,8 @@ JL_DLLEXPORT void jl_set_sysimg_so(void *handle)
 
 extern void rebuild_image_blob_tree(void);
 
+void init_small_typeof(void); // temporary(jwn)
+
 static void jl_restore_system_image_from_stream_(ios_t *f, jl_image_t *image, jl_array_t *depmods, uint64_t checksum,
                                 /* outputs */    jl_array_t **restored,         jl_array_t **init_order,
                                                  jl_array_t **extext_methods,
@@ -2746,6 +2752,7 @@ static void jl_restore_system_image_from_stream_(ios_t *f, jl_image_t *image, jl
         jl_astaggedvalue(jl_nothing)->header = (uintptr_t)jl_nothing_type | jl_astaggedvalue(jl_nothing)->header;
         s.ptls->root_task->tls = jl_read_value(&s);
         jl_gc_wb(s.ptls->root_task, s.ptls->root_task->tls);
+        init_small_typeof(); // temporary(jwn)
         jl_init_int32_int64_cache();
         jl_init_box_caches();
 

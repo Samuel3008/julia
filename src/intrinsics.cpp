@@ -514,7 +514,7 @@ static jl_cgval_t generic_bitcast(jl_codectx_t &ctx, const jl_cgval_t *argv)
     bool isboxed;
     Type *vxt = julia_type_to_llvm(ctx, v.typ, &isboxed);
     if (!jl_is_primitivetype(v.typ) || jl_datatype_size(v.typ) != nb) {
-        Value *typ = emit_typeof_boxed(ctx, v);
+        Value *typ = emit_typeof(ctx, v);
         if (!jl_is_primitivetype(v.typ)) {
             if (jl_is_datatype(v.typ) && !jl_is_abstracttype(v.typ)) {
                 emit_error(ctx, "bitcast: value not a primitive type");

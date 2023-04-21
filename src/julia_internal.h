@@ -793,11 +793,6 @@ typedef enum {
     JL_VARARG_UNBOUND = 3
 } jl_vararg_kind_t;
 
-STATIC_INLINE int jl_is_vararg(jl_value_t *v) JL_NOTSAFEPOINT
-{
-    return jl_typeof(v) == (jl_value_t*)jl_vararg_type;
-}
-
 STATIC_INLINE jl_value_t *jl_unwrap_vararg(jl_vararg_t *v JL_PROPAGATES_ROOT) JL_NOTSAFEPOINT
 {
     assert(jl_is_vararg((jl_value_t*)v));

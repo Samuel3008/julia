@@ -21,6 +21,8 @@ extern "C" {
 
 _Atomic(jl_value_t*) cmpswap_names JL_GLOBALLY_ROOTED;
 
+JL_DLLEXPORT jl_datatype_t *small_typeof[(64 << 4) / sizeof(jl_value_t*)]; // 16-bit aligned, like the GC
+
 // compute empirical max-probe for a given size
 #define max_probe(size) ((size) <= 1024 ? 16 : (size) >> 6)
 #define h2index(hv, sz) (size_t)((hv) & ((sz)-1))
@@ -2462,6 +2464,25 @@ static jl_tvar_t *tvar(const char *name)
                           (jl_value_t*)jl_any_type);
 }
 
+void init_small_typeof(void)
+{
+#define XX(name) &jl_##name##_type,
+    jl_datatype_t *const *const typs[] = {JL_SMALL_TYPEOF(XX) NULL};
+#undef XX
+#define XX(name) jl_##name##_tag,
+    const uintptr_t tags[] = {JL_SMALL_TYPEOF(XX) 0};
+#undef XX
+    for (size_t i = 1; tags[i]; i++) {
+        small_typeof[(i << 4) / sizeof(jl_value_t*)] = *typs[i - 1];
+        if (tags[i - 1] == i)
+            (*typs[i - 1])->smalltag = i;
+    }
+
+#define XX(name) \
+    small_typeof[(jl_##name##_tag << 4) / sizeof(jl_value_t*)] = jl_##name##_type; \
+    jl_##name##_type->smalltag = jl_##name##_tag;
+};
+
 void jl_init_types(void) JL_GC_DISABLED
 {
     jl_module_t *core = NULL; // will need to be assigned later
@@ -2469,10 +2490,16 @@ void jl_init_types(void) JL_GC_DISABLED
     // create base objects
     jl_datatype_type = jl_new_uninitialized_datatype();
     jl_set_typeof(jl_datatype_type, jl_datatype_type);
+    //jl_set_typetagof(jl_datatype_type, jl_datatype_tag);
     jl_typename_type = jl_new_uninitialized_datatype();
     jl_symbol_type = jl_new_uninitialized_datatype();
     jl_simplevector_type = jl_new_uninitialized_datatype();
     jl_methtable_type = jl_new_uninitialized_datatype();
+
+    XX(symbol)
+    //XX(datatype)
+    //XX(symbolvector)
+#undef XX
 
     jl_emptysvec = (jl_svec_t*)jl_gc_permobj(sizeof(void*), jl_simplevector_type);
     jl_svec_set_len_unsafe(jl_emptysvec, 0);
@@ -3255,6 +3282,7 @@ void jl_init_types(void) JL_GC_DISABLED
 
     // override the preferred layout for a couple types
     jl_lineinfonode_type->name->mayinlinealloc = 0; // FIXME: assumed to be a pointer by codegen
+    init_small_typeof();
 }
 
 #ifdef __cplusplus
