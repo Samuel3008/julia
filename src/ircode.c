@@ -610,9 +610,12 @@ static jl_value_t *jl_decode_value_any(jl_ircode_state *s, uint8_t tag) JL_GC_DI
 {
     int32_t sz = (tag == TAG_SHORT_GENERAL ? read_uint8(s->s) : read_int32(s->s));
     jl_value_t *v = jl_gc_alloc(s->ptls, sz, NULL);
-    jl_set_typeof(v, (void*)(intptr_t)0x50);
+    jl_set_typeof(v, (void*)(intptr_t)0xf50);
     jl_datatype_t *dt = (jl_datatype_t*)jl_decode_value(s);
-    jl_set_typeof(v, dt);
+    if (dt->smalltag)
+        jl_set_typetagof(v, dt->smalltag, 0);
+    else
+        jl_set_typeof(v, dt);
     char *data = (char*)jl_data_ptr(v);
     size_t i, np = dt->layout->npointers;
     char *start = data;

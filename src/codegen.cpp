@@ -4145,6 +4145,7 @@ static jl_cgval_t emit_call_specfun_other(jl_codectx_t &ctx, jl_method_instance_
     for (size_t i = 0; i < nargs; i++) {
         jl_value_t *jt = (is_opaque_closure && i == 0) ? (jl_value_t*)jl_any_type :
             jl_nth_slot_type(mi->specTypes, i);
+        // TODO: jl_nth_slot_type should call jl_rewrap_unionall
         if (is_uniquerep_Type(jt))
             continue;
         bool isboxed = deserves_argbox(jt);
@@ -5734,6 +5735,7 @@ static void emit_cfunc_invalidate(
         ++AI;
     for (size_t i = 0; i < nargs; i++) {
         jl_value_t *jt = jl_nth_slot_type(calltype, i);
+        // TODO: jl_nth_slot_type should call jl_rewrap_unionall
         bool isboxed = deserves_argbox(jt);
         Type *et = isboxed ?  ctx.types().T_prjlvalue : julia_type_to_llvm(ctx, jt);
         if (is_uniquerep_Type(jt)) {
@@ -6228,6 +6230,7 @@ static Function* gen_cfun_wrapper(
             Value *arg;
             jl_value_t *spect = (i == 0 && is_opaque_closure) ? (jl_value_t*)jl_any_type :
                 jl_nth_slot_type(lam->specTypes, i);
+            // TODO: jl_nth_slot_type should call jl_rewrap_unionall
             bool isboxed = deserves_argbox(spect);
             Type *T = isboxed ? ctx.types().T_prjlvalue : julia_type_to_llvm(ctx, spect);
             if (is_uniquerep_Type(spect)) {
@@ -6651,6 +6654,7 @@ static Function *gen_invoke_wrapper(jl_method_instance_t *lam, jl_value_t *jlret
     for (size_t i = 0; i < jl_nparams(lam->specTypes) && idx < nfargs; ++i) {
         jl_value_t *ty = ((i == 0) && is_opaque_closure) ? (jl_value_t*)jl_any_type :
             jl_nth_slot_type(lam->specTypes, i);
+        // TODO: jl_nth_slot_type should call jl_rewrap_unionall
         bool isboxed = deserves_argbox(ty);
         Type *lty = isboxed ?  ctx.types().T_prjlvalue : julia_type_to_llvm(ctx, ty);
         if (type_is_ghost(lty) || is_uniquerep_Type(ty))
@@ -6900,6 +6904,7 @@ static jl_datatype_t *compute_va_type(jl_method_instance_t *lam, size_t nreq)
     JL_GC_PUSH1(&tupargs);
     for (size_t i = nreq; i < jl_nparams(lam->specTypes); ++i) {
         jl_value_t *argType = jl_nth_slot_type(lam->specTypes, i);
+        // TODO: jl_nth_slot_type should call jl_rewrap_unionall
         if (is_uniquerep_Type(argType))
             argType = jl_typeof(jl_tparam0(argType));
         else if (jl_has_intersect_type_not_kind(argType)) {
@@ -7020,6 +7025,7 @@ static jl_llvm_functions_t
         if (argname == jl_unused_sym)
             continue;
         jl_value_t *ty = jl_nth_slot_type(lam->specTypes, i);
+        // TODO: jl_nth_slot_type should call jl_rewrap_unionall
         // OpaqueClosure implicitly loads the env
         if (i == 0 && ctx.is_opaque_closure) {
             if (jl_is_array(src->slottypes)) {
@@ -7500,6 +7506,7 @@ static jl_llvm_functions_t
         jl_sym_t *s = slot_symbol(ctx, i);
         jl_value_t *argType = (i == 0 && ctx.is_opaque_closure) ? (jl_value_t*)jl_any_type :
             jl_nth_slot_type(lam->specTypes, i);
+        // TODO: jl_nth_slot_type should call jl_rewrap_unionall
         bool isboxed = deserves_argbox(argType);
         Type *llvmArgType = isboxed ? ctx.types().T_prjlvalue : julia_type_to_llvm(ctx, argType);
         if (s == jl_unused_sym) {
@@ -7608,6 +7615,7 @@ static jl_llvm_functions_t
             SmallVector<jl_cgval_t> vargs(ctx.nvargs);
             for (size_t i = nreq; i < jl_nparams(lam->specTypes); ++i) {
                 jl_value_t *argType = jl_nth_slot_type(lam->specTypes, i);
+                // TODO: jl_nth_slot_type should call jl_rewrap_unionall
                 bool isboxed = deserves_argbox(argType);
                 Type *llvmArgType = isboxed ?  ctx.types().T_prjlvalue : julia_type_to_llvm(ctx, argType);
                 vargs[i - nreq] = get_specsig_arg(argType, llvmArgType, isboxed);

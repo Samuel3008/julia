@@ -509,10 +509,8 @@ STATIC_INLINE jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT
     o->header = tag | GC_OLD_MARKED;
     return jl_valueof(o);
 }
-jl_value_t *jl_permbox8(jl_datatype_t *t, int8_t x);
-jl_value_t *jl_permbox16(jl_datatype_t *t, int16_t x);
-jl_value_t *jl_permbox32(jl_datatype_t *t, int32_t x);
-jl_value_t *jl_permbox64(jl_datatype_t *t, int64_t x);
+jl_value_t *jl_permbox8(jl_datatype_t *t, uintptr_t tag, uint8_t x);
+jl_value_t *jl_permbox32(jl_datatype_t *t, uintptr_t tag, uint32_t x);
 jl_svec_t *jl_perm_symsvec(size_t n, ...);
 
 // this sizeof(__VA_ARGS__) trick can't be computed until C11, but that only matters to Clang in some situations

@@ -92,10 +92,11 @@ typedef struct _jl_value_t jl_value_t;
 struct _jl_taggedvalue_bits {
     uintptr_t gc:2;
     uintptr_t in_image:1;
+    uintptr_t unused:1;
 #ifdef _P64
-    uintptr_t padding:61;
+    uintptr_t tag:60;
 #else
-    uintptr_t padding:29;
+    uintptr_t tag:28;
 #endif
 };
 
@@ -135,7 +136,7 @@ static inline void jl_set_typeof(void *v, void *t) JL_NOTSAFEPOINT
 }
 #define jl_typeis(v,t) (jl_typeof(v)==(jl_value_t*)(t))
 #define jl_typetagis(v,t) (jl_typetagof(v)==(uintptr_t)(t))
-#define jl_set_typetagof(v,t) (jl_set_typeof((v), (void*)((t) << 4)))
+#define jl_set_typetagof(v,t,gc) (jl_set_typeof((v), (void*)(((uintptr_t)(t) << 4) | (gc))))
 
 // Symbols are interned strings (hash-consed) stored as an invasive binary tree.
 // The string data is nul-terminated and hangs off the end of the struct.
@@ -697,11 +698,11 @@ typedef struct {
 
 // constants and type objects -------------------------------------------------
 
-extern JL_DLLEXPORT jl_datatype_t *small_typeof[(64 << 4) / sizeof(jl_value_t*)]; // TODO: export this in libjulia
+extern JL_DLLEXPORT jl_datatype_t *small_typeof[(64 << 4) / sizeof(jl_datatype_t*)]; // TODO: export this in libjulia
 #define JL_SMALL_TYPEOF(XX) \
     /* kinds */ \
-    XX(datatype) \
     XX(typeofbottom) \
+    XX(datatype) \
     XX(unionall) \
     XX(uniontype) \
     /* type objects */ \
@@ -710,9 +711,9 @@ extern JL_DLLEXPORT jl_datatype_t *small_typeof[(64 << 4) / sizeof(jl_value_t*)]
     /* bits types with special allocators */ \
     XX(bool) \
     XX(char) \
-    XX(float16) \
-    XX(float32) \
-    XX(float64) \
+    /*XX(float16)*/ \
+    /*XX(float32)*/ \
+    /*XX(float64)*/ \
     XX(int16) \
     XX(int32) \
     XX(int64) \
@@ -728,10 +729,10 @@ extern JL_DLLEXPORT jl_datatype_t *small_typeof[(64 << 4) / sizeof(jl_value_t*)]
     XX(symbol) \
     XX(task) \
     /* AST objects */ \
-    XX(argument) \
-    XX(newvarnode) \
-    XX(slotnumber) \
-    XX(ssavalue) \
+    /* XX(argument) */ \
+    /* XX(newvarnode) */ \
+    /* XX(slotnumber) */ \
+    /* XX(ssavalue) */ \
     /* end of JL_SMALL_TYPEOF */
 enum jlsmall_typeof_tags {
     jl_null_tag = 0,
@@ -743,38 +744,9 @@ enum jlsmall_typeof_tags {
 static inline jl_value_t *jl_to_typeof(uintptr_t t) JL_NOTSAFEPOINT
 {
     if (t < (64 << 4))
-        return (jl_value_t*)small_typeof[t / sizeof(jl_value_t*)];
+        return (jl_value_t*)small_typeof[t / sizeof(*small_typeof)];
     return (jl_value_t*)t;
 }
-// TODO: delete these as they are implemented
-#define jl_datatype_tag (((uintptr_t)jl_datatype_type) >> 4)
-#define jl_tvar_tag (((uintptr_t)jl_tvar_type) >> 4)
-#define jl_typeofbottom_tag (((uintptr_t)jl_typeofbottom_type) >> 4)
-#define jl_unionall_tag (((uintptr_t)jl_unionall_type) >> 4)
-#define jl_uniontype_tag (((uintptr_t)jl_uniontype_type) >> 4)
-#define jl_vararg_tag (((uintptr_t)jl_vararg_type) >> 4)
-#define jl_bool_tag (((uintptr_t)jl_bool_type) >> 4)
-#define jl_char_tag (((uintptr_t)jl_char_type) >> 4)
-#define jl_float16_tag (((uintptr_t)jl_float16_type) >> 4)
-#define jl_float32_tag (((uintptr_t)jl_float32_type) >> 4)
-#define jl_float64_tag (((uintptr_t)jl_float64_type) >> 4)
-#define jl_int16_tag (((uintptr_t)jl_int16_type) >> 4)
-#define jl_int32_tag (((uintptr_t)jl_int32_type) >> 4)
-#define jl_int64_tag (((uintptr_t)jl_int64_type) >> 4)
-#define jl_int8_tag (((uintptr_t)jl_int8_type) >> 4)
-#define jl_uint16_tag (((uintptr_t)jl_uint16_type) >> 4)
-#define jl_uint32_tag (((uintptr_t)jl_uint32_type) >> 4)
-#define jl_uint64_tag (((uintptr_t)jl_uint64_type) >> 4)
-#define jl_uint8_tag (((uintptr_t)jl_uint8_type) >> 4)
-#define jl_module_tag (((uintptr_t)jl_module_type) >> 4)
-#define jl_simplevector_tag (((uintptr_t)jl_simplevector_type) >> 4)
-#define jl_string_tag (((uintptr_t)jl_string_type) >> 4)
-//#define jl_symbol_tag (((uintptr_t)jl_symbol_type) >> 4)
-#define jl_task_tag (((uintptr_t)jl_task_type) >> 4)
-#define jl_argument_tag (((uintptr_t)jl_argument_type) >> 4)
-#define jl_newvarnode_tag (((uintptr_t)jl_newvarnode_type) >> 4)
-#define jl_slotnumber_tag (((uintptr_t)jl_slotnumber_type) >> 4)
-#define jl_ssavalue_tag (((uintptr_t)jl_ssavalue_type) >> 4)
 
 // kinds
 extern JL_DLLIMPORT jl_datatype_t *jl_typeofbottom_type JL_GLOBALLY_ROOTED;
@@ -1334,21 +1306,21 @@ static inline int jl_is_layout_opaque(const jl_datatype_layout_t *l) JL_NOTSAFEP
 #define jl_is_uint64(v)      jl_typetagis(v,jl_uint64_tag<<4)
 #define jl_is_bool(v)        jl_typetagis(v,jl_bool_tag<<4)
 #define jl_is_symbol(v)      jl_typetagis(v,jl_symbol_tag<<4)
-#define jl_is_ssavalue(v)    jl_typetagis(v,jl_ssavalue_tag<<4)
-#define jl_is_slotnumber(v)  jl_typetagis(v,jl_slotnumber_tag<<4)
+#define jl_is_ssavalue(v)    jl_typetagis(v,jl_ssavalue_type)
+#define jl_is_slotnumber(v)  jl_typetagis(v,jl_slotnumber_type)
 #define jl_is_expr(v)        jl_typetagis(v,jl_expr_type)
 #define jl_is_binding(v)     jl_typetagis(v,jl_binding_type)
 #define jl_is_globalref(v)   jl_typetagis(v,jl_globalref_type)
 #define jl_is_gotonode(v)    jl_typetagis(v,jl_gotonode_type)
 #define jl_is_gotoifnot(v)   jl_typetagis(v,jl_gotoifnot_type)
 #define jl_is_returnnode(v)  jl_typetagis(v,jl_returnnode_type)
-#define jl_is_argument(v)    jl_typetagis(v,jl_argument_tag<<4)
+#define jl_is_argument(v)    jl_typetagis(v,jl_argument_type)
 #define jl_is_pinode(v)      jl_typetagis(v,jl_pinode_type)
 #define jl_is_phinode(v)     jl_typetagis(v,jl_phinode_type)
 #define jl_is_phicnode(v)    jl_typetagis(v,jl_phicnode_type)
 #define jl_is_upsilonnode(v) jl_typetagis(v,jl_upsilonnode_type)
 #define jl_is_quotenode(v)   jl_typetagis(v,jl_quotenode_type)
-#define jl_is_newvarnode(v)  jl_typetagis(v,jl_newvarnode_tag<<4)
+#define jl_is_newvarnode(v)  jl_typetagis(v,jl_newvarnode_type)
 #define jl_is_linenode(v)    jl_typetagis(v,jl_linenumbernode_type)
 #define jl_is_method_instance(v) jl_typetagis(v,jl_method_instance_type)
 #define jl_is_code_instance(v) jl_typetagis(v,jl_code_instance_type)

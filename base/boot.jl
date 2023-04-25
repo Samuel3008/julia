@@ -256,7 +256,7 @@ TypeVar(n::Symbol, @nospecialize(lb), @nospecialize(ub)) = _typevar(n, lb, ub)
 
 UnionAll(v::TypeVar, @nospecialize(t)) = ccall(:jl_type_unionall, Any, (Any, Any), v, t)
 
-const Vararg = ccall(:jl_toplevel_eval_in, Any, (Any, Any), Core, _expr(:new, TypeofVararg))
+const Vararg = ccall(:jl_wrap_vararg, Any, (Int, Int), 0, 0)
 
 # dispatch token indicating a kwarg (keyword sorter) call
 function kwcall end

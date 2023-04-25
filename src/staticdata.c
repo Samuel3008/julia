@@ -1714,10 +1714,8 @@ static void jl_read_reloclist(jl_serializer_state *s, jl_array_t *link_ids, uint
         uintptr_t *pv = (uintptr_t *)(base + pos);
         uintptr_t v = *pv;
         v = get_item_for_reloc(s, base, size, v, link_ids, &link_index);
-        if (bits && ((jl_datatype_t*)v)->smalltag) {
-            abort();
-            v = ((jl_datatype_t*)v)->smalltag; // temporary(jwn)
-        }
+        if (bits && ((jl_datatype_t*)v)->smalltag)
+            v = (uintptr_t)((jl_datatype_t*)v)->smalltag << 4; // temporary(jwn)
         *pv = v | bits;
     }
     assert(!link_ids || link_index == jl_array_len(link_ids));
@@ -2669,8 +2667,6 @@ JL_DLLEXPORT void jl_set_sysimg_so(void *handle)
 
 extern void rebuild_image_blob_tree(void);
 
-void init_small_typeof(void); // temporary(jwn)
-
 static void jl_restore_system_image_from_stream_(ios_t *f, jl_image_t *image, jl_array_t *depmods, uint64_t checksum,
                                 /* outputs */    jl_array_t **restored,         jl_array_t **init_order,
                                                  jl_array_t **extext_methods,
@@ -2746,13 +2742,16 @@ static void jl_restore_system_image_from_stream_(ios_t *f, jl_image_t *image, jl
             jl_value_t **tag = tags[i];
             *tag = jl_read_value(&s);
         }
+#define XX(name) \
+        if (jl_##name##_tag != (uintptr_t)jl_##name##_type >> 4) /*temporary(jwn)*/ \
+            small_typeof[(jl_##name##_tag << 4) / sizeof(*small_typeof)] = jl_##name##_type;
+        JL_SMALL_TYPEOF(XX)
+#undef XX
         jl_global_roots_table = (jl_array_t*)jl_read_value(&s);
         // set typeof extra-special values now that we have the type set by tags above
-        jl_astaggedvalue(jl_current_task)->header = (uintptr_t)jl_task_type | jl_astaggedvalue(jl_current_task)->header;
         jl_astaggedvalue(jl_nothing)->header = (uintptr_t)jl_nothing_type | jl_astaggedvalue(jl_nothing)->header;
         s.ptls->root_task->tls = jl_read_value(&s);
         jl_gc_wb(s.ptls->root_task, s.ptls->root_task->tls);
-        init_small_typeof(); // temporary(jwn)
         jl_init_int32_int64_cache();
         jl_init_box_caches();
 

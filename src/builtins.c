@@ -1417,6 +1417,7 @@ JL_DLLEXPORT jl_tvar_t *jl_new_typevar(jl_sym_t *name, jl_value_t *lb, jl_value_
         jl_type_error_rt("TypeVar", "upper bound", (jl_value_t *)jl_type_type, ub);
     jl_task_t *ct = jl_current_task;
     jl_tvar_t *tv = (jl_tvar_t *)jl_gc_alloc(ct->ptls, sizeof(jl_tvar_t), jl_tvar_type);
+    jl_set_typetagof(tv, jl_tvar_tag, 0);
     tv->name = name;
     tv->lb = lb;
     tv->ub = ub;
@@ -1893,7 +1894,7 @@ static void add_intrinsic_properties(enum intrinsic f, unsigned nargs, void (*pf
 
 static void add_intrinsic(jl_module_t *inm, const char *name, enum intrinsic f) JL_GC_DISABLED
 {
-    jl_value_t *i = jl_permbox32(jl_intrinsic_type, (int32_t)f);
+    jl_value_t *i = jl_permbox32(jl_intrinsic_type, 0, (int32_t)f);
     jl_sym_t *sym = jl_symbol(name);
     jl_set_const(inm, sym, i);
     jl_module_export(inm, sym);

@@ -2492,233 +2492,107 @@ FORCE_INLINE void gc_mark_outrefs(jl_ptls_t ptls, jl_gc_markqueue_t *mq, void *_
         }
         // Symbols are always marked
         assert(vtag != (uintptr_t)jl_symbol_type && vtag != jl_symbol_tag << 4);
-        if (vtag == jl_simplevector_tag << 4) {
-            size_t l = jl_svec_len(new_obj);
-            jl_value_t **data = jl_svec_data(new_obj);
-            size_t dtsz = l * sizeof(void *) + sizeof(jl_svec_t);
-            if (update_meta)
-                gc_setmark(ptls, o, bits, dtsz);
-            else if (foreign_alloc)
-                objprofile_count(jl_simplevector_type, bits == GC_OLD_MARKED, dtsz);
-            jl_value_t *objary_parent = new_obj;
-            jl_value_t **objary_begin = data;
-            jl_value_t **objary_end = data + l;
-            uint32_t step = 1;
-            uintptr_t nptr = (l << 2) | (bits & GC_OLD);
-            gc_mark_objarray(ptls, objary_parent, objary_begin, objary_end, step, nptr);
-        }
-        else if (vtag == jl_module_tag << 4) {
-            if (update_meta)
-                gc_setmark(ptls, o, bits, sizeof(jl_module_t));
-            else if (foreign_alloc)
-                objprofile_count(jl_module_type, bits == GC_OLD_MARKED, sizeof(jl_module_t));
-            jl_module_t *mb_parent = (jl_module_t *)new_obj;
-            jl_svec_t *bindings = jl_atomic_load_relaxed(&mb_parent->bindings);
-            jl_binding_t **table = (jl_binding_t**)jl_svec_data(bindings);
-            size_t bsize = jl_svec_len(bindings);
-            uintptr_t nptr = ((bsize + mb_parent->usings.len + 1) << 2) | (bits & GC_OLD);
-            jl_binding_t **mb_begin = table + 1;
-            jl_binding_t **mb_end = table + bsize;
-            gc_mark_module_binding(ptls, mb_parent, mb_begin, mb_end, nptr, bits);
-        }
-        else if (vtag == jl_task_tag << 4) {
-            if (update_meta)
-                gc_setmark(ptls, o, bits, sizeof(jl_task_t));
-            else if (foreign_alloc)
-                objprofile_count(jl_task_type, bits == GC_OLD_MARKED, sizeof(jl_task_t));
-            jl_task_t *ta = (jl_task_t *)new_obj;
-            gc_scrub_record_task(ta);
-            if (gc_cblist_task_scanner) {
-                int16_t tid = jl_atomic_load_relaxed(&ta->tid);
-                gc_invoke_callbacks(jl_gc_cb_task_scanner_t, gc_cblist_task_scanner,
-                                    (ta, tid != -1 && ta == gc_all_tls_states[tid]->root_task));
-            }
-    #ifdef COPY_STACKS
-            void *stkbuf = ta->stkbuf;
-            if (stkbuf && ta->copy_stack) {
-                gc_setmark_buf_(ptls, stkbuf, bits, ta->bufsz);
-                // For gc_heap_snapshot_record:
-                // TODO: attribute size of stack
-                // TODO: edge to stack data
-                // TODO: synthetic node for stack data (how big is it?)
-            }
-    #endif
-            jl_gcframe_t *s = ta->gcstack;
-            size_t nroots;
-            uintptr_t offset = 0;
-            uintptr_t lb = 0;
-            uintptr_t ub = (uintptr_t)-1;
-    #ifdef COPY_STACKS
-            if (stkbuf && ta->copy_stack && !ta->ptls) {
-                int16_t tid = jl_atomic_load_relaxed(&ta->tid);
-                assert(tid >= 0);
-                jl_ptls_t ptls2 = gc_all_tls_states[tid];
-                ub = (uintptr_t)ptls2->stackbase;
-                lb = ub - ta->copy_stack;
-                offset = (uintptr_t)stkbuf - lb;
-            }
-    #endif
-            if (s != NULL) {
-                nroots = gc_read_stack(&s->nroots, offset, lb, ub);
-                gc_heap_snapshot_record_task_to_frame_edge(ta, s);
-                assert(nroots <= UINT32_MAX);
-                gc_mark_stack(ptls, s, (uint32_t)nroots, offset, lb, ub);
-            }
-            if (ta->excstack) {
-                jl_excstack_t *excstack = ta->excstack;
-                gc_heap_snapshot_record_task_to_frame_edge(ta, excstack);
-                size_t itr = ta->excstack->top;
-                gc_setmark_buf_(ptls, excstack, bits,
-                                sizeof(jl_excstack_t) +
-                                    sizeof(uintptr_t) * excstack->reserved_size);
-                gc_mark_excstack(ptls, excstack, itr);
-            }
-            const jl_datatype_layout_t *layout = jl_task_type->layout;
-            assert(layout->fielddesc_type == 0);
-            assert(layout->nfields > 0);
-            uint32_t npointers = layout->npointers;
-            char *obj8_parent = (char *)ta;
-            uint8_t *obj8_begin = (uint8_t *)jl_dt_layout_ptrs(layout);
-            uint8_t *obj8_end = obj8_begin + npointers;
-            // assume tasks always reference young objects: set lowest bit
-            uintptr_t nptr = (npointers << 2) | 1 | bits;
-            new_obj = gc_mark_obj8(ptls, obj8_parent, obj8_begin, obj8_end, nptr);
-            if (new_obj != NULL) {
-                if (!meta_updated)
-                    goto mark_obj;
-                else
-                    gc_markqueue_push(mq, new_obj);
-            }
-        }
-        else if (vtag == jl_string_tag << 4) {
-            size_t dtsz = jl_string_len(new_obj) + sizeof(size_t) + 1;
-            if (update_meta)
-                gc_setmark(ptls, o, bits, dtsz);
-            else if (foreign_alloc)
-                objprofile_count(jl_string_type, bits == GC_OLD_MARKED, dtsz);
+        if (vtag == (jl_datatype_tag << 4) ||
+            vtag == (jl_unionall_tag << 4) ||
+            vtag == (jl_uniontype_tag << 4) ||
+            vtag == (jl_tvar_tag << 4) ||
+            vtag == (jl_vararg_tag << 4)) {
+            // these objects have pointers in them, but no other special handling
+            // so we want these to fall through to the end
+            vtag = (uintptr_t)small_typeof[vtag / sizeof(*small_typeof)];
         }
         else if (vtag < 64 << 4) {
-            jl_datatype_t *vt = small_typeof[vtag];
-            size_t dtsz = jl_datatype_size(vt);
-            if (update_meta)
-                gc_setmark(ptls, o, bits, dtsz);
-            else if (foreign_alloc)
-                objprofile_count(vt, bits == GC_OLD_MARKED, dtsz);
-        }
-        else {
-            jl_datatype_t *vt = (jl_datatype_t *)vtag;
-            if (__unlikely(!jl_is_datatype(vt)))
-                gc_assert_datatype_fail(ptls, vt, mq);
-            if (vt->name == jl_array_typename) {
-                jl_array_t *a = (jl_array_t *)new_obj;
-                jl_array_flags_t flags = a->flags;
-                if (update_meta) {
-                    if (flags.pooled)
-                        gc_setmark_pool(ptls, o, bits);
-                    else
-                        gc_setmark_big(ptls, o, bits);
-                }
-                else if (foreign_alloc) {
-                    objprofile_count(vt, bits == GC_OLD_MARKED, sizeof(jl_array_t));
-                }
-                if (flags.how == 0) {
-                    void *data_ptr = (char*)a + sizeof(jl_array_t) +jl_array_ndimwords(a->flags.ndims) * sizeof(size_t);
-                    gc_heap_snapshot_record_hidden_edge(new_obj, data_ptr, jl_array_nbytes(a), 2);
-                }
-                if (flags.how == 1) {
-                    void *val_buf = jl_astaggedvalue((char*)a->data - a->offset * a->elsize);
-                    verify_parent1("array", new_obj, &val_buf, "buffer ('loc' addr is meaningless)");
-                    gc_heap_snapshot_record_hidden_edge(new_obj, jl_valueof(val_buf), jl_array_nbytes(a), flags.pooled);
-                    (void)val_buf;
-                    gc_setmark_buf_(ptls, (char*)a->data - a->offset * a->elsize,
-                                    bits, jl_array_nbytes(a));
-                }
-                else if (flags.how == 2) {
-                    if (update_meta || foreign_alloc) {
-                        objprofile_count(jl_malloc_tag, bits == GC_OLD_MARKED,
-                                         jl_array_nbytes(a));
-                        gc_heap_snapshot_record_hidden_edge(new_obj, a->data, jl_array_nbytes(a), flags.pooled);
-                        if (bits == GC_OLD_MARKED) {
-                            ptls->gc_cache.perm_scanned_bytes += jl_array_nbytes(a);
-                        }
-                        else {
-                            ptls->gc_cache.scanned_bytes += jl_array_nbytes(a);
-                        }
-                    }
-                }
-                else if (flags.how == 3) {
-                    jl_value_t *owner = jl_array_data_owner(a);
-                    uintptr_t nptr = (1 << 2) | (bits & GC_OLD);
-                    gc_try_claim_and_push(mq, owner, &nptr);
-                    gc_heap_snapshot_record_internal_array_edge(new_obj, owner);
-                    gc_mark_push_remset(ptls, new_obj, nptr);
-                    return;
-                }
-                if (!a->data || jl_array_len(a) == 0)
-                    return;
-                if (flags.ptrarray) {
-                    if ((jl_datatype_t *)jl_tparam0(vt) == jl_symbol_type)
-                        return;
-                    size_t l = jl_array_len(a);
-                    jl_value_t *objary_parent = new_obj;
-                    jl_value_t **objary_begin = (jl_value_t **)a->data;
-                    jl_value_t **objary_end = objary_begin + l;
-                    uint32_t step = 1;
-                    uintptr_t nptr = (l << 2) | (bits & GC_OLD);
-                    gc_mark_objarray(ptls, objary_parent, objary_begin, objary_end, step, nptr);
-                }
-                else if (flags.hasptr) {
-                    jl_datatype_t *et = (jl_datatype_t *)jl_tparam0(vt);
-                    const jl_datatype_layout_t *layout = et->layout;
-                    unsigned npointers = layout->npointers;
-                    unsigned elsize = a->elsize / sizeof(jl_value_t *);
-                    size_t l = jl_array_len(a);
-                    jl_value_t *objary_parent = new_obj;
-                    jl_value_t **objary_begin = (jl_value_t **)a->data;
-                    jl_value_t **objary_end = objary_begin + l * elsize;
-                    uint32_t step = elsize;
-                    uintptr_t nptr = ((l * npointers) << 2) | (bits & GC_OLD);
-                    if (npointers == 1) { // TODO: detect anytime time stride is uniform?
-                        objary_begin += layout->first_ptr;
-                        gc_mark_objarray(ptls, objary_parent, objary_begin, objary_end, step, nptr);
-                    }
-                    else if (layout->fielddesc_type == 0) {
-                        uint8_t *obj8_begin = (uint8_t *)jl_dt_layout_ptrs(layout);
-                        uint8_t *obj8_end = obj8_begin + npointers;
-                        gc_mark_array8(ptls, objary_parent, objary_begin, objary_end, obj8_begin,
-                                       obj8_end, nptr);
-                    }
-                    else if (layout->fielddesc_type == 1) {
-                        uint16_t *obj16_begin = (uint16_t *)jl_dt_layout_ptrs(layout);
-                        uint16_t *obj16_end = obj16_begin + npointers;
-                        gc_mark_array16(ptls, objary_parent, objary_begin, objary_end, obj16_begin,
-                                        obj16_end, nptr);
-                    }
-                    else {
-                        assert(0 && "unimplemented");
-                    }
-                }
-                return;
+            // these objects either have specialing handling
+            if (vtag == jl_simplevector_tag << 4) {
+                size_t l = jl_svec_len(new_obj);
+                jl_value_t **data = jl_svec_data(new_obj);
+                size_t dtsz = l * sizeof(void *) + sizeof(jl_svec_t);
+                if (update_meta)
+                    gc_setmark(ptls, o, bits, dtsz);
+                else if (foreign_alloc)
+                    objprofile_count(jl_simplevector_type, bits == GC_OLD_MARKED, dtsz);
+                jl_value_t *objary_parent = new_obj;
+                jl_value_t **objary_begin = data;
+                jl_value_t **objary_end = data + l;
+                uint32_t step = 1;
+                uintptr_t nptr = (l << 2) | (bits & GC_OLD);
+                gc_mark_objarray(ptls, objary_parent, objary_begin, objary_end, step, nptr);
             }
-            size_t dtsz = jl_datatype_size(vt);
-            if (update_meta)
-                gc_setmark(ptls, o, bits, dtsz);
-            else if (foreign_alloc)
-                objprofile_count(vt, bits == GC_OLD_MARKED, dtsz);
-            if (vt == jl_weakref_type)
-                return;
-            const jl_datatype_layout_t *layout = vt->layout;
-            uint32_t npointers = layout->npointers;
-            if (npointers == 0)
-                return;
-            uintptr_t nptr = (npointers << 2 | (bits & GC_OLD));
-            assert((layout->nfields > 0 || layout->fielddesc_type == 3) &&
-                   "opaque types should have been handled specially");
-            if (layout->fielddesc_type == 0) {
-                char *obj8_parent = (char *)new_obj;
+            else if (vtag == jl_module_tag << 4) {
+                if (update_meta)
+                    gc_setmark(ptls, o, bits, sizeof(jl_module_t));
+                else if (foreign_alloc)
+                    objprofile_count(jl_module_type, bits == GC_OLD_MARKED, sizeof(jl_module_t));
+                jl_module_t *mb_parent = (jl_module_t *)new_obj;
+                jl_svec_t *bindings = jl_atomic_load_relaxed(&mb_parent->bindings);
+                jl_binding_t **table = (jl_binding_t**)jl_svec_data(bindings);
+                size_t bsize = jl_svec_len(bindings);
+                uintptr_t nptr = ((bsize + mb_parent->usings.len + 1) << 2) | (bits & GC_OLD);
+                jl_binding_t **mb_begin = table + 1;
+                jl_binding_t **mb_end = table + bsize;
+                gc_mark_module_binding(ptls, mb_parent, mb_begin, mb_end, nptr, bits);
+            }
+            else if (vtag == jl_task_tag << 4) {
+                if (update_meta)
+                    gc_setmark(ptls, o, bits, sizeof(jl_task_t));
+                else if (foreign_alloc)
+                    objprofile_count(jl_task_type, bits == GC_OLD_MARKED, sizeof(jl_task_t));
+                jl_task_t *ta = (jl_task_t *)new_obj;
+                gc_scrub_record_task(ta);
+                if (gc_cblist_task_scanner) {
+                    int16_t tid = jl_atomic_load_relaxed(&ta->tid);
+                    gc_invoke_callbacks(jl_gc_cb_task_scanner_t, gc_cblist_task_scanner,
+                                        (ta, tid != -1 && ta == gc_all_tls_states[tid]->root_task));
+                }
+        #ifdef COPY_STACKS
+                void *stkbuf = ta->stkbuf;
+                if (stkbuf && ta->copy_stack) {
+                    gc_setmark_buf_(ptls, stkbuf, bits, ta->bufsz);
+                    // For gc_heap_snapshot_record:
+                    // TODO: attribute size of stack
+                    // TODO: edge to stack data
+                    // TODO: synthetic node for stack data (how big is it?)
+                }
+        #endif
+                jl_gcframe_t *s = ta->gcstack;
+                size_t nroots;
+                uintptr_t offset = 0;
+                uintptr_t lb = 0;
+                uintptr_t ub = (uintptr_t)-1;
+        #ifdef COPY_STACKS
+                if (stkbuf && ta->copy_stack && !ta->ptls) {
+                    int16_t tid = jl_atomic_load_relaxed(&ta->tid);
+                    assert(tid >= 0);
+                    jl_ptls_t ptls2 = gc_all_tls_states[tid];
+                    ub = (uintptr_t)ptls2->stackbase;
+                    lb = ub - ta->copy_stack;
+                    offset = (uintptr_t)stkbuf - lb;
+                }
+        #endif
+                if (s != NULL) {
+                    nroots = gc_read_stack(&s->nroots, offset, lb, ub);
+                    gc_heap_snapshot_record_task_to_frame_edge(ta, s);
+                    assert(nroots <= UINT32_MAX);
+                    gc_mark_stack(ptls, s, (uint32_t)nroots, offset, lb, ub);
+                }
+                if (ta->excstack) {
+                    jl_excstack_t *excstack = ta->excstack;
+                    gc_heap_snapshot_record_task_to_frame_edge(ta, excstack);
+                    size_t itr = ta->excstack->top;
+                    gc_setmark_buf_(ptls, excstack, bits,
+                                    sizeof(jl_excstack_t) +
+                                        sizeof(uintptr_t) * excstack->reserved_size);
+                    gc_mark_excstack(ptls, excstack, itr);
+                }
+                const jl_datatype_layout_t *layout = jl_task_type->layout;
+                assert(layout->fielddesc_type == 0);
+                assert(layout->nfields > 0);
+                uint32_t npointers = layout->npointers;
+                char *obj8_parent = (char *)ta;
                 uint8_t *obj8_begin = (uint8_t *)jl_dt_layout_ptrs(layout);
                 uint8_t *obj8_end = obj8_begin + npointers;
-                assert(obj8_begin < obj8_end);
+                // assume tasks always reference young objects: set lowest bit
+                uintptr_t nptr = (npointers << 2) | 1 | bits;
                 new_obj = gc_mark_obj8(ptls, obj8_parent, obj8_begin, obj8_end, nptr);
                 if (new_obj != NULL) {
                     if (!meta_updated)
@@ -2727,42 +2601,182 @@ FORCE_INLINE void gc_mark_outrefs(jl_ptls_t ptls, jl_gc_markqueue_t *mq, void *_
                         gc_markqueue_push(mq, new_obj);
                 }
             }
-            else if (layout->fielddesc_type == 1) {
-                char *obj16_parent = (char *)new_obj;
-                uint16_t *obj16_begin = (uint16_t *)jl_dt_layout_ptrs(layout);
-                uint16_t *obj16_end = obj16_begin + npointers;
-                assert(obj16_begin < obj16_end);
-                new_obj = gc_mark_obj16(ptls, obj16_parent, obj16_begin, obj16_end, nptr);
-                if (new_obj != NULL) {
-                    if (!meta_updated)
-                        goto mark_obj;
-                    else
-                        gc_markqueue_push(mq, new_obj);
-                }
-            }
-            else if (layout->fielddesc_type == 2) {
-                // This is very uncommon
-                // Do not do store to load forwarding to save some code size
-                char *obj32_parent = (char *)new_obj;
-                uint32_t *obj32_begin = (uint32_t *)jl_dt_layout_ptrs(layout);
-                uint32_t *obj32_end = obj32_begin + npointers;
-                assert(obj32_begin < obj32_end);
-                new_obj = gc_mark_obj32(ptls, obj32_parent, obj32_begin, obj32_end, nptr);
-                if (new_obj != NULL) {
-                    if (!meta_updated)
-                        goto mark_obj;
-                    else
-                        gc_markqueue_push(mq, new_obj);
-                }
+            else if (vtag == jl_string_tag << 4) {
+                size_t dtsz = jl_string_len(new_obj) + sizeof(size_t) + 1;
+                if (update_meta)
+                    gc_setmark(ptls, o, bits, dtsz);
+                else if (foreign_alloc)
+                    objprofile_count(jl_string_type, bits == GC_OLD_MARKED, dtsz);
             }
             else {
-                assert(layout->fielddesc_type == 3);
-                jl_fielddescdyn_t *desc = (jl_fielddescdyn_t *)jl_dt_layout_fields(layout);
-                int old = jl_astaggedvalue(new_obj)->bits.gc & 2;
-                uintptr_t young = desc->markfunc(ptls, new_obj);
-                if (old && young)
-                    gc_mark_push_remset(ptls, new_obj, young * 4 + 3);
+                jl_datatype_t *vt = small_typeof[vtag / sizeof(*small_typeof)];
+                size_t dtsz = jl_datatype_size(vt);
+                if (update_meta)
+                    gc_setmark(ptls, o, bits, dtsz);
+                else if (foreign_alloc)
+                    objprofile_count(vt, bits == GC_OLD_MARKED, dtsz);
             }
+            return;
+        }
+        else {
+            jl_datatype_t *vt = (jl_datatype_t *)vtag;
+            if (__unlikely(!jl_is_datatype(vt) || vt->smalltag))
+                gc_assert_datatype_fail(ptls, vt, mq);
+        }
+        jl_datatype_t *vt = (jl_datatype_t *)vtag;
+        if (vt->name == jl_array_typename) {
+            jl_array_t *a = (jl_array_t *)new_obj;
+            jl_array_flags_t flags = a->flags;
+            if (update_meta) {
+                if (flags.pooled)
+                    gc_setmark_pool(ptls, o, bits);
+                else
+                    gc_setmark_big(ptls, o, bits);
+            }
+            else if (foreign_alloc) {
+                objprofile_count(vt, bits == GC_OLD_MARKED, sizeof(jl_array_t));
+            }
+            if (flags.how == 0) {
+                void *data_ptr = (char*)a + sizeof(jl_array_t) +jl_array_ndimwords(a->flags.ndims) * sizeof(size_t);
+                gc_heap_snapshot_record_hidden_edge(new_obj, data_ptr, jl_array_nbytes(a), 2);
+            }
+            if (flags.how == 1) {
+                void *val_buf = jl_astaggedvalue((char*)a->data - a->offset * a->elsize);
+                verify_parent1("array", new_obj, &val_buf, "buffer ('loc' addr is meaningless)");
+                gc_heap_snapshot_record_hidden_edge(new_obj, jl_valueof(val_buf), jl_array_nbytes(a), flags.pooled);
+                (void)val_buf;
+                gc_setmark_buf_(ptls, (char*)a->data - a->offset * a->elsize,
+                                bits, jl_array_nbytes(a));
+            }
+            else if (flags.how == 2) {
+                if (update_meta || foreign_alloc) {
+                    objprofile_count(jl_malloc_tag, bits == GC_OLD_MARKED,
+                                     jl_array_nbytes(a));
+                    gc_heap_snapshot_record_hidden_edge(new_obj, a->data, jl_array_nbytes(a), flags.pooled);
+                    if (bits == GC_OLD_MARKED) {
+                        ptls->gc_cache.perm_scanned_bytes += jl_array_nbytes(a);
+                    }
+                    else {
+                        ptls->gc_cache.scanned_bytes += jl_array_nbytes(a);
+                    }
+                }
+            }
+            else if (flags.how == 3) {
+                jl_value_t *owner = jl_array_data_owner(a);
+                uintptr_t nptr = (1 << 2) | (bits & GC_OLD);
+                gc_try_claim_and_push(mq, owner, &nptr);
+                gc_heap_snapshot_record_internal_array_edge(new_obj, owner);
+                gc_mark_push_remset(ptls, new_obj, nptr);
+                return;
+            }
+            if (!a->data || jl_array_len(a) == 0)
+                return;
+            if (flags.ptrarray) {
+                if ((jl_datatype_t *)jl_tparam0(vt) == jl_symbol_type)
+                    return;
+                size_t l = jl_array_len(a);
+                jl_value_t *objary_parent = new_obj;
+                jl_value_t **objary_begin = (jl_value_t **)a->data;
+                jl_value_t **objary_end = objary_begin + l;
+                uint32_t step = 1;
+                uintptr_t nptr = (l << 2) | (bits & GC_OLD);
+                gc_mark_objarray(ptls, objary_parent, objary_begin, objary_end, step, nptr);
+            }
+            else if (flags.hasptr) {
+                jl_datatype_t *et = (jl_datatype_t *)jl_tparam0(vt);
+                const jl_datatype_layout_t *layout = et->layout;
+                unsigned npointers = layout->npointers;
+                unsigned elsize = a->elsize / sizeof(jl_value_t *);
+                size_t l = jl_array_len(a);
+                jl_value_t *objary_parent = new_obj;
+                jl_value_t **objary_begin = (jl_value_t **)a->data;
+                jl_value_t **objary_end = objary_begin + l * elsize;
+                uint32_t step = elsize;
+                uintptr_t nptr = ((l * npointers) << 2) | (bits & GC_OLD);
+                if (npointers == 1) { // TODO: detect anytime time stride is uniform?
+                    objary_begin += layout->first_ptr;
+                    gc_mark_objarray(ptls, objary_parent, objary_begin, objary_end, step, nptr);
+                }
+                else if (layout->fielddesc_type == 0) {
+                    uint8_t *obj8_begin = (uint8_t *)jl_dt_layout_ptrs(layout);
+                    uint8_t *obj8_end = obj8_begin + npointers;
+                    gc_mark_array8(ptls, objary_parent, objary_begin, objary_end, obj8_begin,
+                                   obj8_end, nptr);
+                }
+                else if (layout->fielddesc_type == 1) {
+                    uint16_t *obj16_begin = (uint16_t *)jl_dt_layout_ptrs(layout);
+                    uint16_t *obj16_end = obj16_begin + npointers;
+                    gc_mark_array16(ptls, objary_parent, objary_begin, objary_end, obj16_begin,
+                                    obj16_end, nptr);
+                }
+                else {
+                    assert(0 && "unimplemented");
+                }
+            }
+            return;
+        }
+        size_t dtsz = jl_datatype_size(vt);
+        if (update_meta)
+            gc_setmark(ptls, o, bits, dtsz);
+        else if (foreign_alloc)
+            objprofile_count(vt, bits == GC_OLD_MARKED, dtsz);
+        if (vt == jl_weakref_type)
+            return;
+        const jl_datatype_layout_t *layout = vt->layout;
+        uint32_t npointers = layout->npointers;
+        if (npointers == 0)
+            return;
+        uintptr_t nptr = (npointers << 2 | (bits & GC_OLD));
+        assert((layout->nfields > 0 || layout->fielddesc_type == 3) &&
+               "opaque types should have been handled specially");
+        if (layout->fielddesc_type == 0) {
+            char *obj8_parent = (char *)new_obj;
+            uint8_t *obj8_begin = (uint8_t *)jl_dt_layout_ptrs(layout);
+            uint8_t *obj8_end = obj8_begin + npointers;
+            assert(obj8_begin < obj8_end);
+            new_obj = gc_mark_obj8(ptls, obj8_parent, obj8_begin, obj8_end, nptr);
+            if (new_obj != NULL) {
+                if (!meta_updated)
+                    goto mark_obj;
+                else
+                    gc_markqueue_push(mq, new_obj);
+            }
+        }
+        else if (layout->fielddesc_type == 1) {
+            char *obj16_parent = (char *)new_obj;
+            uint16_t *obj16_begin = (uint16_t *)jl_dt_layout_ptrs(layout);
+            uint16_t *obj16_end = obj16_begin + npointers;
+            assert(obj16_begin < obj16_end);
+            new_obj = gc_mark_obj16(ptls, obj16_parent, obj16_begin, obj16_end, nptr);
+            if (new_obj != NULL) {
+                if (!meta_updated)
+                    goto mark_obj;
+                else
+                    gc_markqueue_push(mq, new_obj);
+            }
+        }
+        else if (layout->fielddesc_type == 2) {
+            // This is very uncommon
+            // Do not do store to load forwarding to save some code size
+            char *obj32_parent = (char *)new_obj;
+            uint32_t *obj32_begin = (uint32_t *)jl_dt_layout_ptrs(layout);
+            uint32_t *obj32_end = obj32_begin + npointers;
+            assert(obj32_begin < obj32_end);
+            new_obj = gc_mark_obj32(ptls, obj32_parent, obj32_begin, obj32_end, nptr);
+            if (new_obj != NULL) {
+                if (!meta_updated)
+                    goto mark_obj;
+                else
+                    gc_markqueue_push(mq, new_obj);
+            }
+        }
+        else {
+            assert(layout->fielddesc_type == 3);
+            jl_fielddescdyn_t *desc = (jl_fielddescdyn_t *)jl_dt_layout_fields(layout);
+            int old = jl_astaggedvalue(new_obj)->bits.gc & 2;
+            uintptr_t young = desc->markfunc(ptls, new_obj);
+            if (old && young)
+                gc_mark_push_remset(ptls, new_obj, young * 4 + 3);
         }
     }
 }

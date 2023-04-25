@@ -1079,8 +1079,8 @@ static Value *emit_typeof(jl_codectx_t &ctx, const jl_cgval_t &p, bool maybenull
         if (jl_has_intersect_type_not_kind(typ))
             return false;
         for (size_t i = 0; i < jl_tags_count; i++) {
-            jl_datatype_t *dt = small_typeof[(i << 4) / sizeof(jl_value_t*)];
-            if (dt && jl_subtype((jl_value_t*)dt, typ))
+            jl_datatype_t *dt = small_typeof[(i << 4) / sizeof(*small_typeof)];
+            if (dt && !jl_has_empty_intersection((jl_value_t*)dt, typ))
                 return false;
         }
         return true;
