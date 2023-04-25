@@ -717,7 +717,6 @@ extern JL_DLLEXPORT jl_datatype_t *small_typeof[(64 << 4) / sizeof(jl_value_t*)]
     XX(int32) \
     XX(int64) \
     XX(int8) \
-    XX(intrinsic) \
     XX(uint16) \
     XX(uint32) \
     XX(uint64) \
@@ -763,7 +762,6 @@ static inline jl_value_t *jl_to_typeof(uintptr_t t) JL_NOTSAFEPOINT
 #define jl_int32_tag (((uintptr_t)jl_int32_type) >> 4)
 #define jl_int64_tag (((uintptr_t)jl_int64_type) >> 4)
 #define jl_int8_tag (((uintptr_t)jl_int8_type) >> 4)
-#define jl_intrinsic_tag (((uintptr_t)jl_intrinsic_type) >> 4)
 #define jl_uint16_tag (((uintptr_t)jl_uint16_type) >> 4)
 #define jl_uint32_tag (((uintptr_t)jl_uint32_type) >> 4)
 #define jl_uint64_tag (((uintptr_t)jl_uint64_type) >> 4)
@@ -1364,7 +1362,7 @@ static inline int jl_is_layout_opaque(const jl_datatype_layout_t *l) JL_NOTSAFEP
 #define jl_is_pointer(v)     jl_is_cpointer_type(jl_typeof(v))
 #define jl_is_uint8pointer(v)jl_typetagis(v,jl_uint8pointer_type)
 #define jl_is_llvmpointer(v) (((jl_datatype_t*)jl_typeof(v))->name == jl_llvmpointer_typename)
-#define jl_is_intrinsic(v)   jl_typetagis(v,jl_intrinsic_tag<<4)
+#define jl_is_intrinsic(v)   jl_typetagis(v,jl_intrinsic_type)
 #define jl_array_isbitsunion(a) (!(((jl_array_t*)(a))->flags.ptrarray) && jl_is_uniontype(jl_tparam0(jl_typeof(a))))
 
 JL_DLLEXPORT int jl_subtype(jl_value_t *a, jl_value_t *b);
